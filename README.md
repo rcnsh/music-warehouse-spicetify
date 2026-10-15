@@ -17,6 +17,13 @@ against `Spicetify.React`, with no build step.
 
 Click a song to play it, or an artist to open their page.
 
+The warehouse has no artist images, and artists known only from the export
+have no Spotify id (`name:…`). The app fills both in from the client's own
+GraphQL, which the Spotify client itself uses. For a placeholder it searches by
+name and takes only an exact match, so an artist with a common name stays
+unlinked rather than opening the wrong page. Results, misses included, are
+cached in local storage (`warehouse:artists`).
+
 ## Setup
 
 ### The warehouse

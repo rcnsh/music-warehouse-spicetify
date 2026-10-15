@@ -7,7 +7,7 @@ const react = Spicetify.React;
 const { useState, useEffect, useCallback } = react;
 const h = react.createElement;
 
-const STORAGE = { url: "warehouse:url", token: "warehouse:token", range: "warehouse:range" };
+const STORAGE = { url: "warehouse:url", token: "warehouse:token", range: "warehouse:range", artists: "warehouse:artists" };
 
 const TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
@@ -83,12 +83,94 @@ function useApi(path, settings) {
 	return state;
 }
 
+// The warehouse stores no artist images, and artists known only from the
+// export have a `name:` placeholder instead of a Spotify id. Both are filled in
+// from the client's own GraphQL (not the Web API): the artist entity query for
+// a real id, and search with an exact name match for a placeholder, so a common
+// name never opens the wrong artist. Cached in local storage, misses included.
+const artistCache = (() => {
+	try {
+		return new Map(Object.entries(JSON.parse(Spicetify.LocalStorage.get(STORAGE.artists)) || {}));
+	} catch {
+		return new Map();
+	}
+})();
+
+/** The smallest image at least 80px wide, else the largest. */
+function avatar(sources = []) {
+	const sorted = [...sources].sort((a, b) => a.width - b.width);
+	return (sorted.find((source) => source.width >= 80) ?? sorted.at(-1))?.url ?? null;
+}
+
+const fold = (text) => text.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase().trim();
+
+/** `{ uri, image }` for a warehouse artist id, or null if Spotify has no match. */
+async function resolveArtist(id) {
+	const queries = Spicetify.GraphQL?.Definitions ?? {};
+	if (!id.startsWith("name:")) {
+		const uri = `spotify:artist:${id}`;
+		if (!queries.fetchExtractedColorAndImageForArtistEntity) return { uri, image: null };
+		const response = await Spicetify.GraphQL.Request(queries.fetchExtractedColorAndImageForArtistEntity, { uri });
+		return { uri, image: avatar(response?.data?.artistUnion?.visuals?.avatarImage?.sources) };
+	}
+	if (!queries.searchModalResults) return null;
+	const name = id.slice("name:".length);
+	// The client's own search sends these flags; it fails without `includeAuthors`
+	// (Spotify 1.3.5), and extra flags are ignored, so send every one it uses.
+	const response = await Spicetify.GraphQL.Request(queries.searchModalResults, {
+		searchTerm: name,
+		offset: 0,
+		limit: 10,
+		numberOfTopResults: 10,
+		includeAudiobooks: false,
+		includePreReleases: false,
+		includeAuthors: false,
+		includeArtistHasConcertsField: false,
+		includeEpisodeContentRatingsV2: false,
+	});
+	const results = response?.data?.searchV2;
+	const artists = [...(results?.topResultsV2?.itemsV2 ?? []).map((hit) => hit.item), ...(results?.artists?.items ?? [])]
+		.map((item) => item?.data)
+		.filter((data) => data?.__typename === "Artist");
+	const match = artists.find((artist) => fold(artist.profile?.name ?? "") === fold(name));
+	return match ? { uri: match.uri, image: avatar(match.visuals?.avatarImage?.sources) } : null;
+}
+
+/** Warehouse artist id → `{ uri, image }` or null, filled in as lookups land. */
+function useArtists(ids) {
+	const [, setVersion] = useState(0);
+	const key = ids.join(",");
+	useEffect(() => {
+		let live = true;
+		const missing = ids.filter((id) => id && !artistCache.has(id));
+		if (missing.length === 0) return;
+		Promise.all(
+			missing.map((id) =>
+				resolveArtist(id).then(
+					(artist) => artistCache.set(id, artist),
+					// A failed lookup isn't cached, so the next visit tries again.
+					() => {},
+				),
+			),
+		).then(() => {
+			// Keep the most recent 500, so the cache can't grow forever.
+			Spicetify.LocalStorage.set(STORAGE.artists, JSON.stringify(Object.fromEntries([...artistCache].slice(-500))));
+			if (live) setVersion((version) => version + 1);
+		});
+		return () => {
+			live = false;
+		};
+	}, [key]);
+	return artistCache;
+}
+
 function play(uri) {
 	Spicetify.Player.playUri(uri);
 }
 
-function openArtist(id) {
-	Spicetify.Platform.History.push(`/artist/${id}`);
+/** `spotify:artist:<id>` → that artist's page. */
+function openArtist(uri) {
+	Spicetify.Platform.History.push(`/artist/${uri.split(":").pop()}`);
 }
 
 function Section({ title, children, aside }) {
@@ -172,6 +254,7 @@ function TopTracks({ settings, query }) {
 function TopArtists({ settings, query }) {
 	const state = useApi(`/api/top-artists?${query}&limit=20`, settings);
 	const artists = state.data?.artists ?? [];
+	const resolved = useArtists(artists.map((artist) => artist.artist_id));
 	return h(
 		Section,
 		{ title: "Top artists" },
@@ -179,21 +262,28 @@ function TopArtists({ settings, query }) {
 		h(
 			"ol",
 			{ className: "mw-list" },
-			artists.map((artist, index) =>
+			artists.map((artist) => {
+				const spotify = resolved.get(artist.artist_id);
+				// A real id can be opened before its image arrives; a `name:`
+				// placeholder only once search has found the artist.
+				const uri = spotify?.uri ?? (artist.artist_id.startsWith("name:") ? null : `spotify:artist:${artist.artist_id}`);
+				return { artist, uri, image: spotify?.image };
+			}).map(({ artist, uri, image }, index) =>
 				h(
 					"li",
-					{ key: artist.artist_id ?? artist.name },
+					{ key: artist.artist_id },
 					h(
 						"button",
 						{
 							className: "mw-row",
-							// Artists known only from the export have no id, so nowhere to open.
-							disabled: !artist.artist_id,
-							onClick: () => openArtist(artist.artist_id),
-							title: artist.artist_id ? `Open ${artist.name}` : undefined,
+							disabled: !uri,
+							onClick: () => openArtist(uri),
+							title: uri ? `Open ${artist.name}` : undefined,
 						},
 						h("span", { className: "mw-rank" }, index + 1),
-						h("div", { className: "mw-art-empty mw-round" }, artist.name.slice(0, 1)),
+						image
+							? h("img", { src: image, alt: "", loading: "lazy", className: "mw-round" })
+							: h("div", { className: "mw-art-empty mw-round" }, artist.name.slice(0, 1)),
 						h("span", { className: "mw-row-text" }, h("span", { className: "mw-ellipsis" }, artist.name)),
 						h("span", { className: "mw-plays" }, artist.plays.toLocaleString()),
 					),

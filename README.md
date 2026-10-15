@@ -3,8 +3,8 @@
 <p><strong>Your music-warehouse listening stats, inside the Spotify desktop client.</strong></p>
 <p>
 <a href="LICENSE"><img alt="Licence: MIT" src="https://img.shields.io/badge/licence-MIT-blue?style=flat-square"></a>
-<img alt="JavaScript" src="https://img.shields.io/badge/JavaScript-no%20build%20step-F7DF1E?style=flat-square&logo=javascript&logoColor=black">
-<a href="https://spicetify.app"><img alt="Spicetify custom app" src="https://img.shields.io/badge/Spicetify-custom%20app-orange?style=flat-square"></a>
+<img alt="JavaScript" src="https://img.shields.io/badge/JavaScript-F7DF1E?style=flat-square&logo=javascript&logoColor=black">
+<a href="https://spicetify.app"><img alt="Spicetify app" src="https://img.shields.io/badge/Spicetify%20app-191414?style=flat-square&logo=spotify&logoColor=1DB954"></a>
 <a href="https://github.com/rcnsh/music-warehouse#clients"><img alt="Part of music-warehouse" src="https://img.shields.io/badge/part%20of-music--warehouse-1DB954?style=flat-square"></a>
 </p>
 <p><a href="#what-it-shows">What it shows</a> · <a href="#quick-start">Quick start</a> · <a href="#setup">Setup</a> · <a href="#troubleshooting">Troubleshooting</a> · <a href="#related-projects">Related projects</a></p>
@@ -236,4 +236,4 @@ The app's pages live under `/warehouse/<tab>` and
 
 ## Licence
 
-[MIT](LICENSE).
+MIT. See [LICENSE](LICENSE).

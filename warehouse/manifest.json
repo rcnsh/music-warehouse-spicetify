@@ -2,6 +2,9 @@
 	"name": "Warehouse",
 	"icon": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 21V9l9-6 9 6v12\"/><path d=\"M8 21v-6M12 21v-9M16 21v-4\"/></svg>",
 	"active-icon": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 21V9l9-6 9 6v12\"/><path d=\"M8 21v-6M12 21v-9M16 21v-4\"/></svg>",
-	"subfiles": [],
+	"subfiles": [
+		"components.js",
+		"pages.js"
+	],
 	"subfiles_extension": []
 }

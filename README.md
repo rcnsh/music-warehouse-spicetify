@@ -6,16 +6,24 @@ inside the Spotify desktop client, read from your own
 
 It only calls the warehouse's `/api/*` routes, never Spotify's Web API, so
 Spotify's rate limits and endpoint removals don't affect it. Plain JavaScript
-against `Spicetify.React`, with no build step.
+against `Spicetify.React`, with no build step: `index.js` (shell, API,
+routing), `components.js` and `pages.js`, concatenated by Spicetify.
 
 ## What it shows
 
-- **On repeat**: songs you're playing far more than usual over the last 14
-  days, with a daily sparkline.
-- **Top songs and artists** for the last 4 weeks, 6 months, year or all time,
-  counted in the client's local timezone.
+| Tab | From |
+|---|---|
+| **Overview**: on repeat (with a 14-day sparkline), jump back in, top songs and artists for 4 weeks, 6 months, a year or all time, and a listening clock with your streak | `/api/stats/on-repeat`, `/api/home`, `/api/top-tracks`, `/api/top-artists`, `/api/stats/rhythm` |
+| **History**: every play, newest first, searchable, with each one's play number or "first play" | `/api/plays` |
+| **On this day**: what you played on a date in earlier years | `/api/on-this-day` |
+| **Albums**: most-played albums, all time and per year | `/api/stats/albums` |
+| **Over time**: top artists and songs per year or quarter | `/api/stats/top-over-time` |
+| **Wrapped**: any range the warehouse has computed | `/api/wrapped` |
+| **Concerts**: upcoming gigs for the artists you play most | `/api/concerts` |
 
-Click a song to play it, or an artist to open their page.
+Every song and artist opens a page of its own, with totals, plays by month,
+top songs and recent plays (`/api/track`, `/api/artist`, `/api/plays`). Hover
+a row for a play button; artist pages link to Spotify's own.
 
 The warehouse has no artist images, and artists known only from the export
 have no Spotify id (`name:…`). The app fills both in from the client's own

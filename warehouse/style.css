@@ -8,7 +8,7 @@
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
-	margin-bottom: 24px;
+	margin-bottom: 16px;
 }
 
 .mw-header h1 {
@@ -26,6 +26,7 @@
 	display: flex;
 	align-items: baseline;
 	justify-content: space-between;
+	gap: 16px;
 	margin-bottom: 12px;
 }
 
@@ -34,6 +35,13 @@
 	font-size: 1.4rem;
 	font-weight: 700;
 	margin: 0;
+}
+
+.mw-year h3,
+.mw-period h3 {
+	font-size: 1.1rem;
+	font-weight: 700;
+	margin: 20px 0 8px;
 }
 
 .mw-muted {
@@ -52,6 +60,16 @@
 	white-space: nowrap;
 }
 
+.mw-link {
+	color: inherit;
+	cursor: pointer;
+}
+
+.mw-link:hover {
+	color: var(--spice-text);
+	text-decoration: underline;
+}
+
 .mw-app button {
 	font: inherit;
 	color: inherit;
@@ -60,12 +78,53 @@
 
 .mw-app button:disabled {
 	cursor: default;
+	opacity: 0.45;
 }
 
-/* Range picker and buttons */
+.mw-badge {
+	display: inline-block;
+	margin-left: 8px;
+	padding: 1px 7px;
+	border-radius: 999px;
+	background: var(--spice-button);
+	color: var(--spice-main);
+	font-size: 0.7rem;
+	font-weight: 700;
+	vertical-align: middle;
+}
+
+/* Tabs */
+.mw-tabs {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px 20px;
+	margin-bottom: 28px;
+	border-bottom: 1px solid rgba(var(--spice-rgb-text), 0.1);
+}
+
+.mw-tab {
+	background: none;
+	border: 0;
+	border-bottom: 2px solid transparent;
+	padding: 8px 0;
+	color: var(--spice-subtext) !important;
+	font-weight: 700 !important;
+}
+
+.mw-tab:hover {
+	color: var(--spice-text) !important;
+}
+
+.mw-tab[aria-current="page"] {
+	color: var(--spice-text) !important;
+	border-bottom-color: var(--spice-button);
+}
+
+/* Pill buttons, range pickers */
 .mw-chips,
 .mw-actions {
 	display: flex;
+	flex-wrap: wrap;
 	gap: 8px;
 	margin-bottom: 20px;
 }
@@ -78,45 +137,124 @@
 	font-size: 0.875rem;
 }
 
-.mw-chip:hover {
+.mw-chip:not(:disabled):hover {
 	background: rgba(var(--spice-rgb-text), 0.12);
 }
 
 .mw-chip[aria-selected="true"],
 .mw-primary {
-	background: var(--spice-text);
+	background: var(--spice-text) !important;
 	color: var(--spice-main) !important;
 }
 
-/* On repeat */
+.mw-more {
+	margin-top: 12px;
+}
+
+.mw-search,
+.mw-date,
+.mw-settings input {
+	background: rgba(var(--spice-rgb-text), 0.07);
+	border: 1px solid rgba(var(--spice-rgb-text), 0.15);
+	border-radius: 4px;
+	color: var(--spice-text);
+	padding: 8px 10px;
+	font: inherit;
+	font-weight: 400;
+	color-scheme: dark;
+}
+
+.mw-search {
+	width: 100%;
+	max-width: 480px;
+	margin-bottom: 16px;
+}
+
+/* Stat tiles */
+.mw-stats {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+	gap: 12px;
+	margin-bottom: 32px;
+}
+
+.mw-stat {
+	background: rgba(var(--spice-rgb-text), 0.05);
+	border-radius: 8px;
+	padding: 14px 16px;
+}
+
+.mw-stat-value {
+	font-size: 1.35rem;
+	font-weight: 800;
+	margin-bottom: 2px;
+}
+
+/* Cards */
 .mw-cards {
 	display: grid;
 	grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
 	gap: 16px;
 }
 
+.mw-cards-small {
+	grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+}
+
 .mw-card {
 	display: flex;
 	flex-direction: column;
 	background: var(--spice-card);
-	border: 0;
 	border-radius: 8px;
 	padding: 12px;
-	text-align: left;
 	min-width: 0;
 }
 
-.mw-card:hover {
+.mw-card[role="link"] {
+	cursor: pointer;
+}
+
+.mw-card[role="link"]:hover {
 	background: rgba(var(--spice-rgb-text), 0.1);
 }
 
-.mw-card img,
-.mw-card .mw-art-empty {
+.mw-card-art {
+	position: relative;
+	margin-bottom: 10px;
+}
+
+.mw-card-art img,
+.mw-card-art .mw-art-empty {
+	display: flex;
 	width: 100%;
 	aspect-ratio: 1;
 	border-radius: 4px;
 	object-fit: cover;
-	margin-bottom: 10px;
+	font-size: 2rem;
+}
+
+.mw-card-play {
+	position: absolute;
+	right: 8px;
+	bottom: 8px;
+	width: 40px;
+	height: 40px;
+	border: 0;
+	border-radius: 50%;
+	background: var(--spice-button);
+	color: var(--spice-main) !important;
+	box-shadow: 0 6px 14px rgba(0, 0, 0, 0.4);
+	opacity: 0;
+	transform: translateY(6px);
+	transition:
+		opacity 0.15s,
+		transform 0.15s;
+}
+
+.mw-card:hover .mw-card-play,
+.mw-card-play:focus-visible {
+	opacity: 1;
+	transform: none;
 }
 
 .mw-card-name {
@@ -134,6 +272,8 @@
 	font-size: 0.75rem;
 	color: var(--spice-subtext);
 	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
 }
 
 .mw-spark {
@@ -149,33 +289,31 @@
 	border-radius: 1px;
 }
 
-/* Top lists */
+/* Lists */
 .mw-columns {
 	display: grid;
 	grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
 	gap: 32px;
 }
 
-.mw-list {
-	list-style: none;
-	margin: 0;
-	padding: 0;
-}
-
 .mw-row {
 	display: grid;
-	grid-template-columns: 24px 40px minmax(0, 1fr) auto;
+	grid-template-columns: 28px 40px minmax(0, 1fr) auto;
 	align-items: center;
 	gap: 12px;
-	width: 100%;
-	background: none;
-	border: 0;
 	border-radius: 4px;
 	padding: 6px 8px;
-	text-align: left;
+	color: inherit;
+	text-decoration: none;
 }
 
-.mw-row:not(:disabled):hover {
+.mw-row[role="link"],
+a.mw-row {
+	cursor: pointer;
+}
+
+.mw-row[role="link"]:hover,
+a.mw-row:hover {
 	background: rgba(var(--spice-rgb-text), 0.1);
 }
 
@@ -199,7 +337,33 @@
 }
 
 .mw-rank {
-	text-align: right;
+	display: flex;
+	justify-content: flex-end;
+}
+
+.mw-play {
+	display: none;
+	background: none;
+	border: 0;
+	padding: 0;
+	font-size: 0.9rem;
+	color: var(--spice-text) !important;
+}
+
+.mw-row:hover .mw-play,
+.mw-play:focus-visible {
+	display: block;
+}
+
+.mw-row:hover .mw-play-cell .mw-rank-number {
+	display: none;
+}
+
+.mw-play-meta {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	white-space: nowrap;
 }
 
 .mw-art-empty {
@@ -213,6 +377,139 @@
 
 .mw-round {
 	border-radius: 50% !important;
+}
+
+/* Over time: artist shares */
+.mw-shares {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.mw-share {
+	display: grid;
+	grid-template-columns: minmax(0, 160px) 1fr 40px;
+	align-items: center;
+	gap: 12px;
+	padding: 6px 8px;
+	border-radius: 4px;
+	cursor: pointer;
+}
+
+.mw-share:hover {
+	background: rgba(var(--spice-rgb-text), 0.1);
+}
+
+.mw-share-bar {
+	height: 8px;
+	border-radius: 4px;
+	background: rgba(var(--spice-rgb-text), 0.08);
+	overflow: hidden;
+}
+
+.mw-share-bar span {
+	display: block;
+	height: 100%;
+	background: var(--spice-button);
+}
+
+.mw-share .mw-plays {
+	text-align: right;
+}
+
+/* Concerts */
+.mw-concert {
+	grid-template-columns: 64px minmax(0, 1fr) auto;
+}
+
+.mw-concert-date {
+	display: flex;
+	flex-direction: column;
+	line-height: 1.2;
+}
+
+/* Bar charts */
+.mw-chart {
+	margin-bottom: 16px;
+}
+
+.mw-chart-bars,
+.mw-chart-labels {
+	display: flex;
+	gap: 2px;
+}
+
+.mw-chart-bars {
+	align-items: flex-end;
+	border-bottom: 1px solid rgba(var(--spice-rgb-text), 0.15);
+}
+
+.mw-chart-bar {
+	flex: 1;
+	min-width: 0;
+	background: var(--spice-button);
+	border-radius: 2px 2px 0 0;
+	opacity: 0.85;
+}
+
+.mw-chart-bar:hover {
+	opacity: 1;
+}
+
+.mw-chart-labels span {
+	flex: 1;
+	min-width: 0;
+	overflow: visible;
+	white-space: nowrap;
+	font-size: 0.7rem;
+	color: var(--spice-subtext);
+	padding-top: 4px;
+}
+
+/* Detail page header */
+.mw-hero {
+	display: flex;
+	align-items: flex-end;
+	gap: 24px;
+	margin-bottom: 28px;
+}
+
+.mw-hero-art {
+	flex: none;
+	width: 180px;
+	height: 180px;
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+	border-radius: 6px;
+	overflow: hidden;
+}
+
+.mw-hero-art img,
+.mw-hero-art .mw-art-empty {
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+	font-size: 4rem;
+}
+
+.mw-hero-text {
+	min-width: 0;
+}
+
+.mw-hero-text h1 {
+	font-size: clamp(2rem, 5vw, 4.5rem);
+	font-weight: 900;
+	line-height: 1.05;
+	margin: 4px 0 8px;
+	overflow-wrap: anywhere;
+}
+
+.mw-hero-sub {
+	font-weight: 700;
+	margin-bottom: 16px;
+}
+
+.mw-hero .mw-actions {
+	margin: 0;
 }
 
 /* Settings */
@@ -231,17 +528,21 @@
 	font-size: 0.875rem;
 }
 
-.mw-settings input {
-	background: rgba(var(--spice-rgb-text), 0.07);
-	border: 1px solid rgba(var(--spice-rgb-text), 0.15);
-	border-radius: 4px;
-	color: var(--spice-text);
-	padding: 8px 10px;
-	font: inherit;
-	font-weight: 400;
-}
-
 .mw-settings a {
 	color: var(--spice-text);
 	text-decoration: underline;
+}
+
+/* One line of cards; whatever doesn't fit is hidden rather than wrapping. */
+.mw-cards-row {
+	grid-template-rows: auto;
+	grid-auto-rows: 0;
+	row-gap: 0;
+	overflow: hidden;
+}
+
+/* Spotify underlines every link on hover; a whole row shouldn't be. */
+a.mw-row:hover,
+a.mw-row:hover * {
+	text-decoration: none;
 }

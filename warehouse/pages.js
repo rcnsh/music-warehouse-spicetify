@@ -508,7 +508,8 @@ function Wrapped({ settings }) {
 	const state = useApi("/api/wrapped/ranges", settings);
 	const ranges = state.data?.ranges ?? [];
 	const [chosen, setChosen] = useState(null);
-	const range = ranges.find((candidate) => candidate.from === chosen) ?? ranges.find((candidate) => candidate.computed);
+	const range =
+		ranges.find((candidate) => candidate.from === chosen) ?? ranges.find((candidate) => candidate.computed) ?? ranges[0];
 	return h(
 		Section,
 		{ title: "Wrapped" },
@@ -518,9 +519,8 @@ function Wrapped({ settings }) {
 				options: ranges.map((candidate) => ({
 					key: candidate.from,
 					label: candidate.label,
-					// A read token can only open ranges the warehouse has already computed.
-					disabled: !candidate.computed,
-					title: candidate.computed ? undefined : "Not computed yet",
+					// Every listed range is a preset, which the warehouse computes on first open.
+					title: candidate.computed ? undefined : "Computed when opened",
 				})),
 				value: range?.from,
 				onChange: setChosen,

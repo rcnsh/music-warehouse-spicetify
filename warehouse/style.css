@@ -63,6 +63,7 @@
 .mw-link {
 	color: inherit;
 	cursor: pointer;
+	text-decoration: none;
 }
 
 .mw-link:hover {

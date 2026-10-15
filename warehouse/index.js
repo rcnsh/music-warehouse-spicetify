@@ -4,7 +4,7 @@
 
 /** @type {typeof import("react")} */
 const react = Spicetify.React;
-const { useState, useEffect, useCallback } = react;
+const { useState, useEffect, useCallback, useRef } = react;
 const h = react.createElement;
 
 const STORAGE = { url: "warehouse:url", token: "warehouse:token", range: "warehouse:range", artists: "warehouse:artists" };
@@ -33,24 +33,85 @@ class ApiError extends Error {
 	}
 }
 
+const TIMEOUT_MS = 20_000;
+
+/** Hosts that may be reached over plain http: this machine only. */
+const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+/** Why `url` can't be a warehouse URL, or null if it can: https, or http to this machine. */
+function warehouseUrlError(url) {
+	let parsed;
+	try {
+		parsed = new URL(url);
+	} catch {
+		return "Enter the warehouse's full URL, starting with https://.";
+	}
+	if (parsed.protocol === "https:") return null;
+	if (parsed.protocol === "http:" && LOOPBACK.has(parsed.hostname)) return null;
+	return "The warehouse URL must start with https:// (plain http is only allowed for localhost).";
+}
+
+/** Seconds to wait from a Retry-After header, or null if it has none it can use. */
+function retryAfterSeconds(header) {
+	if (header == null || header.trim() === "") return null;
+	const seconds = Number(header);
+	return Number.isFinite(seconds) && seconds >= 0 ? Math.min(seconds, 30) : null;
+}
+
+/** `signal` and a timeout together, as one signal. */
+function withTimeout(signal) {
+	const timeout = AbortSignal.timeout(TIMEOUT_MS);
+	if (!signal) return timeout;
+	if (AbortSignal.any) return AbortSignal.any([signal, timeout]);
+	const controller = new AbortController();
+	const abort = (source) => () => controller.abort(source.reason);
+	signal.addEventListener("abort", abort(signal), { once: true });
+	timeout.addEventListener("abort", abort(timeout), { once: true });
+	return controller.signal;
+}
+
+function sleep(ms, signal) {
+	return new Promise((resolve, reject) => {
+		if (signal?.aborted) return reject(signal.reason);
+		const timer = setTimeout(resolve, ms);
+		signal?.addEventListener(
+			"abort",
+			() => {
+				clearTimeout(timer);
+				reject(signal.reason);
+			},
+			{ once: true },
+		);
+	});
+}
+
 /**
  * GET a warehouse route. Plain fetch, not CosmosAsync: CosmosAsync would attach
  * the Spotify session token and route a non-Spotify URL through Spicetify's
  * proxy. A stat still being computed answers 503 with Retry-After; wait once.
+ * A 503 with `needs_reauth` is the warehouse's Spotify grant, which waiting
+ * won't fix. `signal` aborts the request; an abort rejects with its AbortError.
  */
-async function api(path, { url, token }, retried = false) {
+async function api(path, { url, token }, { signal, retried = false } = {}) {
+	const urlError = warehouseUrlError(url);
+	if (urlError) throw new ApiError(urlError, 0);
 	let response;
 	try {
-		response = await fetch(`${url}${path}`, { headers: { Authorization: `Bearer ${token}` } });
-	} catch {
+		response = await fetch(`${url}${path}`, { headers: { Authorization: `Bearer ${token}` }, signal: withTimeout(signal) });
+	} catch (error) {
+		if (signal?.aborted) throw error;
+		if (error?.name === "TimeoutError") throw new ApiError(`The warehouse didn't answer within ${TIMEOUT_MS / 1000} seconds. Try again.`, 0);
 		throw new ApiError("Couldn't reach the warehouse. Check the URL, and that it allows https://xpui.app.spotify.com in CORS_ORIGINS.", 0);
 	}
-	if (response.status === 503 && !retried) {
-		const wait = Math.min(Number(response.headers.get("Retry-After")) || 5, 30);
-		await new Promise((resolve) => setTimeout(resolve, wait * 1000));
-		return api(path, { url, token }, true);
-	}
 	const body = await response.json().catch(() => ({}));
+	if (response.status === 503) {
+		if (body.needs_reauth) throw new ApiError("The warehouse's Spotify connection needs re-authorizing. Sign in to the warehouse again.", 503);
+		const wait = retryAfterSeconds(response.headers.get("Retry-After"));
+		if (wait != null && !retried) {
+			await sleep(wait * 1000, signal);
+			return api(path, { url, token }, { signal, retried: true });
+		}
+	}
 	if (!response.ok) {
 		const message = response.status === 401 ? "The warehouse refused the token. Paste a new one in Settings." : body.error || `HTTP ${response.status}`;
 		throw new ApiError(message, response.status);
@@ -62,15 +123,13 @@ async function api(path, { url, token }, retried = false) {
 function useApi(path, settings) {
 	const [state, setState] = useState({ data: null, error: null, loading: true });
 	useEffect(() => {
-		let live = true;
+		const controller = new AbortController();
 		setState((previous) => ({ ...previous, loading: true }));
-		api(path, settings).then(
-			(data) => live && setState({ data, error: null, loading: false }),
-			(error) => live && setState({ data: null, error, loading: false }),
+		api(path, settings, { signal: controller.signal }).then(
+			(data) => !controller.signal.aborted && setState({ data, error: null, loading: false }),
+			(error) => !controller.signal.aborted && setState({ data: null, error, loading: false }),
 		);
-		return () => {
-			live = false;
-		};
+		return () => controller.abort();
 	}, [path, settings.url, settings.token]);
 	return state;
 }
@@ -111,6 +170,7 @@ function Settings({ settings, onSave, onCancel }) {
 		),
 		h("label", null, "Warehouse URL", h("input", { type: "url", required: true, placeholder: "https://warehouse.example.com", value: url, onChange: (event) => setUrl(event.target.value) })),
 		cleanUrl &&
+			!warehouseUrlError(cleanUrl) &&
 			h(
 				"p",
 				null,
@@ -138,13 +198,51 @@ const TABS = [
 	{ key: "concerts", label: "Concerts", page: Concerts },
 ];
 
+/** `decodeURIComponent`, or null for a malformed escape instead of throwing. */
+function safeDecode(text) {
+	try {
+		return decodeURIComponent(text);
+	} catch {
+		return null;
+	}
+}
+
 /** The page for /warehouse/<tab> or /warehouse/<artist|track>/<id>. */
 function route(pathname, settings) {
 	const [, , section = "", id] = pathname.split("/");
-	if (section === "artist" && id) return h(ArtistPage, { key: id, id: decodeURIComponent(id), settings });
-	if (section === "track" && id) return h(TrackPage, { key: id, id: decodeURIComponent(id), settings });
+	if ((section === "artist" || section === "track") && id) {
+		const decoded = safeDecode(id);
+		if (decoded == null) return h(Section, { title: "Not found" }, h("p", { className: "mw-muted" }, "That link is malformed."));
+		return h(section === "artist" ? ArtistPage : TrackPage, { key: id, id: decoded, settings });
+	}
 	const tab = TABS.find((candidate) => candidate.key === section) ?? TABS[0];
 	return h(tab.page, { settings });
+}
+
+/** Catches a page that throws while rendering, so one bad response can't blank the app. */
+class ErrorBoundary extends react.Component {
+	constructor(props) {
+		super(props);
+		this.state = { error: null };
+	}
+
+	static getDerivedStateFromError(error) {
+		return { error };
+	}
+
+	componentDidCatch(error, info) {
+		console.error("warehouse:", error, info?.componentStack);
+	}
+
+	render() {
+		if (!this.state.error) return this.props.children;
+		return h(
+			Section,
+			{ title: "Something went wrong" },
+			h("p", { className: "mw-error" }, this.state.error.message || String(this.state.error)),
+			h("button", { className: "mw-chip", onClick: () => this.setState({ error: null }) }, "Try again"),
+		);
+	}
 }
 
 function App() {
@@ -188,7 +286,8 @@ function App() {
 							),
 						),
 					),
-					route(pathname, settings),
+					// Keyed by path, so opening another page clears an error.
+					h(ErrorBoundary, { key: pathname }, route(pathname, settings)),
 				),
 	);
 }

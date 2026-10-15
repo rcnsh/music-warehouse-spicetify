@@ -9,6 +9,9 @@ Spotify's rate limits and endpoint removals don't affect it. Plain JavaScript
 against `Spicetify.React`, with no build step: `index.js` (shell, API,
 routing), `components.js` and `pages.js`, concatenated by Spicetify.
 
+It is one of several clients of the warehouse; the
+[full list](https://github.com/rcnsh/music-warehouse#clients) is in its README.
+
 ## What it shows
 
 | Tab | From |

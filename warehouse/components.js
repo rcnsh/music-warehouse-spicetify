@@ -62,6 +62,33 @@ function openSpotifyArtist(uri) {
 	Spicetify.Platform.History.push(`/artist/${uri.split(":").pop()}`);
 }
 
+/** `url` if it is an https URL, else null, so a stored link can't run script. */
+function safeExternalUrl(url) {
+	try {
+		const parsed = new URL(url);
+		return parsed.protocol === "https:" ? parsed.href : null;
+	} catch {
+		return null;
+	}
+}
+
+/** An in-app link: a real href for keyboard and screen readers, routed by Spotify's history. */
+function AppLink({ path, children }) {
+	return h(
+		"a",
+		{
+			className: "mw-link",
+			href: `/warehouse${path}`,
+			onClick: (event) => {
+				event.preventDefault();
+				event.stopPropagation();
+				go(path);
+			},
+		},
+		children,
+	);
+}
+
 /** The current pathname, re-rendering on every navigation. */
 function usePathname() {
 	const history = Spicetify.Platform.History;
@@ -76,8 +103,13 @@ function usePathname() {
 // have a `name:` placeholder instead of a Spotify id. Both are filled in from
 // the client's own GraphQL (not the Web API): the artist entity query for a
 // real id, and search with an exact name match for a placeholder, so a common
-// name never opens the wrong artist. Cached in local storage, misses included.
+// name never opens the wrong artist. Cached in local storage: hits for good,
+// misses for a day, and a failed lookup not at all.
 let artistCacheMap = null;
+
+const MISS_TTL_MS = 86_400_000;
+const ARTIST_CACHE_SIZE = 500;
+const ARTIST_LOOKUPS_AT_ONCE = 4;
 
 function artistCache() {
 	if (!artistCacheMap) {
@@ -90,9 +122,59 @@ function artistCache() {
 	return artistCacheMap;
 }
 
+function saveArtistCache() {
+	const cache = artistCache();
+	// Keep the most recently used, so the cache can't grow forever.
+	Spicetify.LocalStorage.set(STORAGE.artists, JSON.stringify(Object.fromEntries([...cache].slice(-ARTIST_CACHE_SIZE))));
+}
+
+/** Set `id`, moving it to the most recently used end. */
+function touchArtist(cache, id, entry) {
+	cache.delete(id);
+	cache.set(id, entry);
+}
+
+/**
+ * Whether a cache entry needs looking up: absent, a miss over a day old, a miss
+ * from before misses were timestamped (null), or a hit from before `large`.
+ */
+function needsLookup(entry, now = Date.now()) {
+	if (entry == null) return true;
+	if ("missedAt" in entry) return !(now - entry.missedAt < MISS_TTL_MS);
+	return !("large" in entry);
+}
+
+/** The `{ uri, image, large }` in a cache entry, or null for a miss. */
+function cachedArtist(entry) {
+	return entry && !("missedAt" in entry) ? entry : null;
+}
+
+/** `fn` over `items`, at most `limit` at a time, results in order. */
+async function mapLimit(items, limit, fn) {
+	const results = new Array(items.length);
+	let next = 0;
+	const worker = async () => {
+		while (next < items.length) {
+			const index = next++;
+			results[index] = await fn(items[index], index);
+		}
+	};
+	await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+	return results;
+}
+
+/**
+ * The `data` of a GraphQL response. Spicetify.GraphQL.Request usually resolves
+ * with `{ errors }` rather than throwing, and that is a failure, not a miss.
+ */
+function graphqlData(response) {
+	if (response?.errors?.length) throw new Error(`GraphQL: ${response.errors[0]?.message ?? "request failed"}`);
+	return response?.data;
+}
+
 /** The smallest image at least `min` px wide, else the largest. */
-function pickImage(sources = [], min = 80) {
-	const sorted = [...sources].sort((a, b) => a.width - b.width);
+function pickImage(sources, min = 80) {
+	const sorted = [...(sources ?? [])].sort((a, b) => a.width - b.width);
 	return (sorted.find((source) => source.width >= min) ?? sorted.at(-1))?.url ?? null;
 }
 
@@ -104,63 +186,73 @@ async function resolveArtist(id) {
 	if (!id.startsWith("name:")) {
 		const uri = `spotify:artist:${id}`;
 		if (!queries.fetchExtractedColorAndImageForArtistEntity) return { uri, image: null, large: null };
-		const response = await Spicetify.GraphQL.Request(queries.fetchExtractedColorAndImageForArtistEntity, { uri });
-		const sources = response?.data?.artistUnion?.visuals?.avatarImage?.sources;
+		const data = graphqlData(await Spicetify.GraphQL.Request(queries.fetchExtractedColorAndImageForArtistEntity, { uri }));
+		const sources = data?.artistUnion?.visuals?.avatarImage?.sources;
 		return { uri, image: pickImage(sources), large: pickImage(sources, 300) };
 	}
 	if (!queries.searchModalResults) return null;
 	const name = id.slice("name:".length);
 	// The client's own search sends these flags; it fails without `includeAuthors`
 	// (Spotify 1.3.5), and extra flags are ignored, so send every one it uses.
-	const response = await Spicetify.GraphQL.Request(queries.searchModalResults, {
-		searchTerm: name,
-		offset: 0,
-		limit: 10,
-		numberOfTopResults: 10,
-		includeAudiobooks: false,
-		includePreReleases: false,
-		includeAuthors: false,
-		includeArtistHasConcertsField: false,
-		includeEpisodeContentRatingsV2: false,
-	});
-	const results = response?.data?.searchV2;
+	const data = graphqlData(
+		await Spicetify.GraphQL.Request(queries.searchModalResults, {
+			searchTerm: name,
+			offset: 0,
+			limit: 10,
+			numberOfTopResults: 10,
+			includeAudiobooks: false,
+			includePreReleases: false,
+			includeAuthors: false,
+			includeArtistHasConcertsField: false,
+			includeEpisodeContentRatingsV2: false,
+		}),
+	);
+	const results = data?.searchV2;
 	const artists = [...(results?.topResultsV2?.itemsV2 ?? []).map((hit) => hit.item), ...(results?.artists?.items ?? [])]
 		.map((item) => item?.data)
-		.filter((data) => data?.__typename === "Artist");
+		.filter((entity) => entity?.__typename === "Artist");
 	const match = artists.find((artist) => fold(artist.profile?.name ?? "") === fold(name));
 	if (!match) return null;
 	const sources = match.visuals?.avatarImage?.sources;
 	return { uri: match.uri, image: pickImage(sources), large: pickImage(sources, 300) };
 }
 
-/** Warehouse artist id → `{ uri, image, large }` or null, filled in as lookups land. */
+/**
+ * Warehouse artist id → `{ uri, image, large }` or null, filled in as lookups
+ * land. Returns `{ get(id) }`.
+ */
 function useArtists(ids) {
 	const [, setVersion] = useState(0);
 	const key = ids.join(",");
 	useEffect(() => {
 		let live = true;
 		const cache = artistCache();
-		// Entries from before `large` existed are looked up again.
-		const missing = [...new Set(ids)].filter((id) => id && (!cache.has(id) || (cache.get(id) && !("large" in cache.get(id)))));
-		if (missing.length === 0) return;
-		Promise.all(
-			missing.map((id) =>
-				resolveArtist(id).then(
-					(artist) => cache.set(id, artist),
-					// A failed lookup isn't cached, so the next visit tries again.
-					() => {},
-				),
-			),
+		const wanted = [...new Set(ids)].filter(Boolean);
+		if (wanted.length === 0) return;
+		const missing = wanted.filter((id) => needsLookup(cache.get(id)));
+		for (const id of wanted) if (!missing.includes(id)) touchArtist(cache, id, cache.get(id));
+		if (missing.length === 0) {
+			saveArtistCache();
+			return;
+		}
+		mapLimit(missing, ARTIST_LOOKUPS_AT_ONCE, (id) =>
+			// Once the page is gone, the queue drains without asking Spotify.
+			live
+				? resolveArtist(id).then(
+						(artist) => touchArtist(cache, id, artist ?? { missedAt: Date.now() }),
+						// A failed lookup isn't cached, so the next visit tries again.
+						() => {},
+					)
+				: null,
 		).then(() => {
-			// Keep the most recent 500, so the cache can't grow forever.
-			Spicetify.LocalStorage.set(STORAGE.artists, JSON.stringify(Object.fromEntries([...cache].slice(-500))));
+			saveArtistCache();
 			if (live) setVersion((version) => version + 1);
 		});
 		return () => {
 			live = false;
 		};
 	}, [key]);
-	return artistCache();
+	return { get: (id) => cachedArtist(artistCache().get(id)) };
 }
 
 /** The Spotify URI for a warehouse artist id, once known. */
@@ -229,7 +321,14 @@ function rowProps(onOpen) {
 				role: "link",
 				tabIndex: 0,
 				onClick: onOpen,
-				onKeyDown: (event) => event.key === "Enter" && onOpen(),
+				onKeyDown: (event) => {
+					// Ignore keys meant for a link or button inside the row.
+					if (event.target !== event.currentTarget) return;
+					if (event.key === "Enter" || event.key === " ") {
+						event.preventDefault();
+						onOpen();
+					}
+				},
 			}
 		: { "aria-disabled": true };
 }
@@ -274,19 +373,7 @@ function TrackRow({ index, id, name, artist, artistId, image, detail, value }) {
 			h(
 				"span",
 				{ className: "mw-muted mw-ellipsis" },
-				artistId
-					? h(
-							"a",
-							{
-								className: "mw-link",
-								onClick: (event) => {
-									event.stopPropagation();
-									go(artistPath(artistId));
-								},
-							},
-							artist,
-						)
-					: artist,
+				artistId ? h(AppLink, { path: artistPath(artistId) }, artist) : artist,
 				detail && ` · ${detail}`,
 			),
 		),

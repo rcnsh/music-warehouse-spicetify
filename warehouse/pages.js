@@ -7,8 +7,9 @@ const RANGES = [
 	{ key: "4w", label: "4 weeks", days: 28 },
 	{ key: "6m", label: "6 months", days: 182 },
 	{ key: "1y", label: "Year", days: 365 },
-	// The API allows ranges up to 3,660 days.
-	{ key: "all", label: "All time", days: 3660 },
+	// The API allows ranges up to 3,660 days, counted in its own zone; one less
+	// leaves room for a DST change between the client's days and the Worker's.
+	{ key: "all", label: "All time", days: 3659 },
 ];
 
 function OnRepeat({ settings }) {
@@ -149,7 +150,7 @@ function PlayRows({ plays }) {
 		{ className: "mw-list" },
 		plays.map((p) =>
 			h(TrackRow, {
-				key: `${p.played_at_ms}-${p.track_id}`,
+				key: playKey(p),
 				id: p.track_id,
 				name: p.track_name,
 				artist: p.artists,
@@ -167,31 +168,72 @@ function PlayRows({ plays }) {
 	);
 }
 
+/** A play's identity: the warehouse stores one play per track per ms. */
+function playKey(play) {
+	return `${play.played_at_ms}-${play.track_id}`;
+}
+
+/** `incoming` after `shown`, less any play already shown. */
+function appendPlays(shown, incoming) {
+	const seen = new Set(shown.map(playKey));
+	return [...shown, ...incoming.filter((play) => !seen.has(playKey(play)))];
+}
+
+/**
+ * The `before` for the page after `data`, or null when there is none. The
+ * warehouse sends an opaque `next_before`; an older one doesn't, so page from
+ * just after the last play's ms instead. That repeats the plays sharing that
+ * ms, which appendPlays drops, rather than skipping them.
+ */
+function nextPlaysCursor(data, pageSize) {
+	if ("next_before" in data) return data.next_before ?? null;
+	const last = data.plays?.at(-1);
+	return last && data.plays.length >= pageSize ? String(last.played_at_ms + 1) : null;
+}
+
+const NO_PLAYS = { plays: [], next: null, done: false, loading: true, error: null };
+
 /** Pages of /api/plays newest first; `filter` is extra query parameters. */
 function usePlays(filter, settings, pageSize = 50) {
-	const [pages, setPages] = useState({ plays: [], done: false, loading: true, error: null });
+	const [pages, setPages] = useState(NO_PLAYS);
+	// Each load takes the next id and aborts the one before. A response for an
+	// older id is dropped, so a slow search can't replace a newer one's results,
+	// and a page for the previous filter can't be appended to this one's.
+	const latest = useRef({ id: 0, controller: null });
 	const load = useCallback(
-		async (before) => {
+		async (cursor) => {
+			latest.current.controller?.abort();
+			const controller = new AbortController();
+			const id = ++latest.current.id;
+			latest.current.controller = controller;
 			setPages((previous) => ({ ...previous, loading: true }));
 			try {
-				const data = await api(`/api/plays?${filter}&limit=${pageSize}${before ? `&before=${before}` : ""}`, settings);
-				setPages((previous) => ({
-					plays: before ? [...previous.plays, ...data.plays] : data.plays,
-					done: data.plays.length < pageSize,
-					loading: false,
-					error: null,
-				}));
+				const before = cursor ? `&before=${encodeURIComponent(cursor)}` : "";
+				const data = await api(`/api/plays?${filter}&limit=${pageSize}${before}`, settings, { signal: controller.signal });
+				if (id !== latest.current.id) return;
+				setPages((previous) => {
+					const plays = cursor ? appendPlays(previous.plays, data.plays ?? []) : (data.plays ?? []);
+					// Paging by time stalls if a whole page shares one ms; stop rather than loop.
+					const stalled = cursor && plays.length === previous.plays.length;
+					const next = stalled ? null : nextPlaysCursor(data, pageSize);
+					return { plays, next, done: next == null, loading: false, error: null };
+				});
 			} catch (error) {
+				if (id !== latest.current.id) return;
 				setPages((previous) => ({ ...previous, loading: false, error }));
 			}
 		},
 		[filter, settings.url, settings.token],
 	);
 	useEffect(() => {
-		setPages({ plays: [], done: false, loading: true, error: null });
-		load();
+		setPages(NO_PLAYS);
+		load(null);
+		return () => {
+			latest.current.id++;
+			latest.current.controller?.abort();
+		};
 	}, [load]);
-	const more = () => load(pages.plays.at(-1)?.played_at_ms);
+	const more = () => pages.next != null && load(pages.next);
 	return { ...pages, more };
 }
 
@@ -245,7 +287,7 @@ function OnThisDay({ settings }) {
 				h(
 					"div",
 					{ className: "mw-list" },
-					year.top_tracks.map((track, index) => h(TrackRow, { key: track.id, index: index + 1, id: track.id, name: track.name, artist: track.artist, image: track.image, value: formatNumber(track.plays) })),
+					(year.top_tracks ?? []).map((track, index) => h(TrackRow, { key: track.id, index: index + 1, id: track.id, name: track.name, artist: track.artist, image: track.image, value: formatNumber(track.plays) })),
 				),
 			),
 		),
@@ -314,7 +356,7 @@ function OverTime({ settings }) {
 					h(
 						"div",
 						{ className: "mw-shares" },
-						period.artists.map((artist) =>
+						(period.artists ?? []).map((artist) =>
 							h(
 								"div",
 								{ key: artist.name, className: "mw-share", ...rowProps(() => go(artistPath(`name:${artist.name}`))) },
@@ -327,7 +369,7 @@ function OverTime({ settings }) {
 					h(
 						"div",
 						{ className: "mw-list" },
-						period.tracks.map((track, index) =>
+						(period.tracks ?? []).map((track, index) =>
 							h(TrackRow, { key: track.track_id, index: index + 1, id: track.track_id, name: track.name, artist: track.artist, image: track.image, value: formatNumber(track.plays) }),
 						),
 					),
@@ -350,11 +392,11 @@ function WrappedSummary({ range, settings }) {
 		null,
 		h(Stats, {
 			items: [
-				["Minutes", formatNumber(w.totals.minutes)],
-				["Plays", formatNumber(w.totals.plays)],
-				["Days listened", `${formatNumber(w.totals.days_listened)} of ${formatNumber(w.range.days)}`],
-				["Artists", formatNumber(w.totals.artists)],
-				["Songs", formatNumber(w.totals.songs)],
+				["Minutes", formatNumber(w.totals?.minutes)],
+				["Plays", formatNumber(w.totals?.plays)],
+				["Days listened", `${formatNumber(w.totals?.days_listened)} of ${formatNumber(w.range?.days)}`],
+				["Artists", formatNumber(w.totals?.artists)],
+				["Songs", formatNumber(w.totals?.songs)],
 				w.biggest_day && ["Biggest day", `${formatDate(w.biggest_day.date)}, ${formatNumber(w.biggest_day.minutes)} min`],
 				w.streak && ["Longest streak", `${formatNumber(w.streak.days)} days`],
 				w.listening_age && ["Listening age", formatNumber(w.listening_age.age)],
@@ -369,7 +411,7 @@ function WrappedSummary({ range, settings }) {
 				h(
 					"div",
 					{ className: "mw-list" },
-					w.top_artists.map((artist, index) =>
+					(w.top_artists ?? []).map((artist, index) =>
 						h(ArtistRow, {
 							key: artist.id,
 							index: index + 1,
@@ -388,7 +430,7 @@ function WrappedSummary({ range, settings }) {
 				h(
 					"div",
 					{ className: "mw-list" },
-					w.top_songs.map((song, index) =>
+					(w.top_songs ?? []).map((song, index) =>
 						h(TrackRow, {
 							key: song.track_id,
 							index: index + 1,
@@ -409,17 +451,17 @@ function WrappedSummary({ range, settings }) {
 			h(
 				"div",
 				{ className: "mw-cards mw-cards-small" },
-				w.top_albums.map((album) => h(Card, { key: `${album.name}-${album.artist}`, image: album.image, title: album.name, subtitle: album.artist, foot: `${formatNumber(album.minutes)} min` })),
+				(w.top_albums ?? []).map((album) => h(Card, { key: `${album.name}-${album.artist}`, image: album.image, title: album.name, subtitle: album.artist, foot: `${formatNumber(album.minutes)} min` })),
 			),
 		),
 		h(
 			Section,
 			{ title: "Month by month" },
-			h(BarChart, { bars: w.months.map((month) => ({ label: formatMonth(month.month).split(" ")[0], value: month.minutes, title: `${formatMonth(month.month)}: ${formatNumber(month.minutes)} min` })), height: 100, format: (value) => `${formatNumber(value)} min` }),
+			h(BarChart, { bars: (w.months ?? []).map((month) => ({ label: formatMonth(month.month).split(" ")[0], value: month.minutes, title: `${formatMonth(month.month)}: ${formatNumber(month.minutes)} min` })), height: 100, format: (value) => `${formatNumber(value)} min` }),
 			h(
 				"div",
 				{ className: "mw-list" },
-				w.months.map((month) =>
+				(w.months ?? []).map((month) =>
 					h(TrackRow, {
 						key: month.month,
 						id: month.top_song_id,
@@ -439,12 +481,12 @@ function WrappedSummary({ range, settings }) {
 			h(
 				Section,
 				{ title: "By hour" },
-				h(BarChart, { bars: w.hours.map((value, hour) => ({ label: String(hour).padStart(2, "0"), value })), labelEvery: 3, height: 90, format: (value) => `${formatNumber(value)} min` }),
+				h(BarChart, { bars: (w.hours ?? []).map((value, hour) => ({ label: String(hour).padStart(2, "0"), value })), labelEvery: 3, height: 90, format: (value) => `${formatNumber(value)} min` }),
 			),
 			h(
 				Section,
 				{ title: "By weekday" },
-				h(BarChart, { bars: w.weekdays.map((value, day) => ({ label: weekdays[day], value })), height: 90, format: (value) => `${formatNumber(value)} min` }),
+				h(BarChart, { bars: (w.weekdays ?? []).map((value, day) => ({ label: weekdays[day], value })), height: 90, format: (value) => `${formatNumber(value)} min` }),
 			),
 		),
 		w.discoveries &&
@@ -454,7 +496,7 @@ function WrappedSummary({ range, settings }) {
 				h(
 					"div",
 					{ className: "mw-cards mw-cards-small" },
-					w.discoveries.top.map((artist) =>
+					(w.discoveries.top ?? []).map((artist) =>
 						h(Card, { key: artist.id, image: artist.image, title: artist.name, foot: `${formatNumber(artist.minutes)} min`, onOpen: () => go(artistPath(artist.id)) }),
 					),
 				),
@@ -489,11 +531,40 @@ function Wrapped({ settings }) {
 
 // --- Concerts ---------------------------------------------------------------
 
+/** Concerts by date and time, those with no date yet last. */
+function sortConcerts(concerts) {
+	return [...concerts].sort(
+		(a, b) => (a.date == null) - (b.date == null) || (a.date ?? "").localeCompare(b.date ?? "") || (a.time ?? "").localeCompare(b.time ?? ""),
+	);
+}
+
+function ConcertRow({ concert, week }) {
+	const href = safeExternalUrl(concert.url);
+	return h(
+		href ? "a" : "div",
+		{ className: "mw-row mw-concert", ...(href ? { href, target: "_blank", rel: "noreferrer" } : {}) },
+		h(
+			"span",
+			{ className: "mw-concert-date" },
+			concert.date
+				? [h("strong", { key: "day" }, formatDate(concert.date).replace(/ \d{4}$/, "")), h("span", { key: "year", className: "mw-muted" }, concert.date.slice(0, 4))]
+				: h("strong", null, "Date TBA"),
+		),
+		h(
+			"span",
+			{ className: "mw-row-text" },
+			h("span", { className: "mw-ellipsis" }, concert.artists, new Date(concert.first_seen).getTime() > week && h("span", { className: "mw-badge" }, "New")),
+			h("span", { className: "mw-muted mw-ellipsis" }, [concert.name !== concert.artists && concert.name, concert.venue, concert.city, concert.time].filter(Boolean).join(" · ")),
+		),
+		h("span", { className: "mw-plays" }, concert.status === "onsale" ? (href ? "Tickets ↗" : "On sale") : concert.status),
+	);
+}
+
 function Concerts({ settings }) {
 	const state = useApi(`/api/concerts?tz=${encodeURIComponent(TZ)}`, settings);
 	const [region, setRegion] = useState("all");
 	const regions = state.data?.regions ?? [];
-	const concerts = (state.data?.concerts ?? []).filter((concert) => region === "all" || concert.region === region);
+	const concerts = sortConcerts((state.data?.concerts ?? []).filter((concert) => region === "all" || concert.region === region));
 	const week = Date.now() - 7 * 86_400_000;
 	return h(
 		Section,
@@ -508,20 +579,8 @@ function Concerts({ settings }) {
 		h(
 			"div",
 			{ className: "mw-list" },
-			concerts.map((concert) =>
-				h(
-					"a",
-					{ key: concert.url, className: "mw-row mw-concert", href: concert.url, target: "_blank", rel: "noreferrer" },
-					h("span", { className: "mw-concert-date" }, h("strong", null, formatDate(concert.date).replace(/ \d{4}$/, "")), h("span", { className: "mw-muted" }, concert.date.slice(0, 4))),
-					h(
-						"span",
-						{ className: "mw-row-text" },
-						h("span", { className: "mw-ellipsis" }, concert.artists, new Date(concert.first_seen).getTime() > week && h("span", { className: "mw-badge" }, "New")),
-						h("span", { className: "mw-muted mw-ellipsis" }, [concert.name !== concert.artists && concert.name, concert.venue, concert.city, concert.time].filter(Boolean).join(" · ")),
-					),
-					h("span", { className: "mw-plays" }, concert.status === "onsale" ? "Tickets ↗" : concert.status),
-				),
-			),
+			// The response has no event id, and url can be null: key by what's shown.
+			concerts.map((concert, index) => h(ConcertRow, { key: `${index}:${concert.region}:${concert.date}:${concert.time}:${concert.name}`, concert, week })),
 		),
 	);
 }
@@ -579,7 +638,7 @@ function ArtistPage({ id, settings }) {
 					h(
 						"div",
 						{ className: "mw-list" },
-						a.top_tracks.map((track, index) => h(TrackRow, { key: track.id, index: index + 1, id: track.id, name: track.name, artist: a.artist.name, image: track.image, value: formatNumber(track.plays) })),
+						(a.top_tracks ?? []).map((track, index) => h(TrackRow, { key: track.id, index: index + 1, id: track.id, name: track.name, artist: a.artist?.name, image: track.image, value: formatNumber(track.plays) })),
 					),
 				),
 				h(Section, { title: "Recent plays" }, h(PlayRows, { plays: pages.plays }), h(MoreButton, { pages })),
@@ -599,7 +658,7 @@ function TrackPage({ id, settings }) {
 			image: t?.track?.image,
 			kicker: "Song",
 			title: t?.track?.name ?? "",
-			subtitle: t && (artistId ? h("a", { className: "mw-link", onClick: () => go(artistPath(artistId)) }, t.track.artist) : t.track.artist),
+			subtitle: t && (artistId ? h(AppLink, { path: artistPath(artistId) }, t.track?.artist) : t.track?.artist),
 			actions: [h("button", { key: "play", className: "mw-chip mw-primary", onClick: () => play(`spotify:track:${id}`) }, "▶ Play")],
 		}),
 		h(Status, { state }),

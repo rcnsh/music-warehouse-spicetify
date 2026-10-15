@@ -52,8 +52,12 @@ The app only calls the warehouse's `/api/*` routes, never Spotify's Web API,
 so Spotify's rate limits and endpoint removals don't affect it. Requests are
 plain `fetch` calls with your token as a bearer header, sent from the client's
 origin, `https://xpui.app.spotify.com`; that is why the warehouse has to allow
-that origin for CORS. A stat the warehouse is still computing answers `503`;
-the app waits for its `Retry-After` (at most 30 seconds) and tries once more.
+that origin for CORS. A stat the warehouse is still computing answers `503`
+with `Retry-After`; the app waits for it (at most 30 seconds) and tries once
+more. A `503` with `needs_reauth` means the warehouse's own Spotify grant has
+lapsed, so it is shown rather than retried. A request that gets no answer in
+20 seconds is abandoned. The warehouse URL must be `https://`, except for
+`localhost`, `127.0.0.1` and `[::1]` while developing.
 
 It is plain JavaScript against `Spicetify.React`, with no build step:
 `index.js` (shell, API, routing), `components.js` and `pages.js`, concatenated
@@ -63,8 +67,10 @@ The warehouse has no artist images, and artists known only from the export
 have no Spotify id (`name:…`). The app fills both in from the client's own
 GraphQL, which the Spotify client itself uses. For a placeholder it searches by
 name and takes only an exact match, so an artist with a common name stays
-unlinked rather than opening the wrong page. Results, misses included, are
-cached in local storage (`warehouse:artists`).
+unlinked rather than opening the wrong page. Results are cached in local
+storage (`warehouse:artists`, the 500 most recently used): matches for good,
+misses for a day, and failed lookups not at all. At most four lookups run at
+once.
 
 ## Requirements
 
@@ -132,12 +138,15 @@ cd music-warehouse-spicetify
 ./install.sh
 ```
 
-`install.sh` does three things:
+`install.sh` is a bash script for macOS and Linux; on Windows, use the
+[manual install](#manual-install). It checks that `spicetify` is on your
+`PATH` and that `spicetify backup` has been run, then:
 
 1. Symlinks this repo's `warehouse/` folder to
    `$(spicetify path userdata)/CustomApps/warehouse`, creating `CustomApps/`
    if needed and replacing any existing link there.
-2. Runs `spicetify config custom_apps warehouse` to enable it.
+2. Runs `spicetify config custom_apps warehouse` to enable it, unless it is
+   already enabled. Other custom apps, such as `marketplace`, are left alone.
 3. Runs `spicetify apply`, which restarts the client with the app in it.
 
 Because it is a symlink rather than a copy, keep the clone where it is: moving
@@ -148,7 +157,8 @@ or deleting it breaks the app. To update, `git pull` in the clone and run
 
 On Windows, or if you'd rather copy than link: copy `warehouse/` into
 `$(spicetify path userdata)/CustomApps/` (keeping the folder name `warehouse`),
-then:
+then run these (in PowerShell on Windows, where `spicetify path userdata`
+prints the folder to copy into):
 
 ```bash
 spicetify config custom_apps warehouse
@@ -187,6 +197,10 @@ with `POST /admin/tokens`.
 |---|---|
 | "Couldn't reach the warehouse. Check the URL, and that it allows https://xpui.app.spotify.com in CORS_ORIGINS." | The request failed before any answer: a wrong URL, or `CORS_ORIGINS` doesn't include the client's origin (or a WAF rule blocks the `OPTIONS` preflight). See [step 1](#1-allow-the-spotify-client-in-cors). |
 | "The warehouse refused the token. Paste a new one in Settings." | `401`: the token is wrong, revoked or expired. Sign in again for a new one. |
+| "The warehouse didn't answer within 20 seconds. Try again." | The request timed out. The warehouse may be slow or down; check its `/health`. |
+| "The warehouse's Spotify connection needs re-authorizing." | The warehouse's own Spotify grant has lapsed. Sign in again at the warehouse as its owner. Stored history still loads. |
+| "The warehouse URL must start with https://" | Plain `http` is only allowed for `localhost`. Use the warehouse's `https://` URL. |
+| "Something went wrong" with **Try again** | A page failed to render, usually on a response it didn't expect. Try again, or open another tab; the details are in the client's DevTools console. |
 | Another message or `HTTP <status>` | The warehouse's own error, passed through as-is. |
 | Wrapped ranges you can't select | A read token can only open ranges the warehouse has already computed. |
 | Concerts is empty | The warehouse only checks for concerts when it has a `TICKETMASTER_API_KEY`; see its [configuration](https://github.com/rcnsh/music-warehouse#configuration). |
@@ -212,6 +226,14 @@ If you installed by copying rather than with `install.sh`, the last line needs
 
 There is nothing to build. With the app installed by `install.sh`, edit the
 files in `warehouse/` and run `spicetify apply` to reload the client with them.
+
+The pure helpers and the API client have tests that load the three files the
+way Spicetify does, with a stub `Spicetify`. They need Node 22 or later and
+nothing else:
+
+```bash
+node --test
+```
 
 | File | |
 |---|---|

@@ -202,7 +202,7 @@ with `POST /admin/tokens`.
 | "The warehouse URL must start with https://" | Plain `http` is only allowed for `localhost`. Use the warehouse's `https://` URL. |
 | "Something went wrong" with **Try again** | A page failed to render, usually on a response it didn't expect. Try again, or open another tab; the details are in the client's DevTools console. |
 | Another message or `HTTP <status>` | The warehouse's own error, passed through as-is. |
-| Wrapped ranges you can't select | A read token can only open ranges the warehouse has already computed. |
+| A Wrapped range is slow to open the first time | Every listed range is a preset, which the warehouse computes on first open (and warms one a day); the app waits for it once. Any other range needs the warehouse's admin token. |
 | Concerts is empty | The warehouse only checks for concerts when it has a `TICKETMASTER_API_KEY`; see its [configuration](https://github.com/rcnsh/music-warehouse#configuration). |
 | **Warehouse** is missing from the top bar | Spicetify's patch is gone, usually after a Spotify update. See below. |
 

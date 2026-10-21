@@ -24,6 +24,8 @@ const exported = [
 	"appendPlays",
 	"nextPlaysCursor",
 	"sortConcerts",
+	"clockStats",
+	"onRepeatCaption",
 	"RANGES",
 ];
 
@@ -36,6 +38,7 @@ function load(fetchStub = () => Promise.reject(new Error("no fetch"))) {
 			LocalStorage: { get: (key) => storage.get(key) ?? null, set: (key, value) => storage.set(key, value) },
 		},
 		fetch: (...args) => fetchStub(...args),
+		Intl,
 		URL,
 		AbortController,
 		AbortSignal,
@@ -232,4 +235,44 @@ test("concerts sort by date and time, undated last", () => {
 test("All time stays under the Worker's 3,660-day cap across a DST change", () => {
 	const { RANGES } = load();
 	assert.equal(RANGES.find((range) => range.key === "all").days, 3659);
+});
+
+// Bodies shaped exactly as the Worker's src/stats/rhythm.ts and repeat.ts
+// send them, so a renamed or re-meant field shows up here.
+const rhythmBody = {
+	as_of: "2026-10-19T00:00:00.000Z",
+	range: { from: "2019-01", to: "2026-10" },
+	streaks: [
+		{ threshold: 1, current_weeks: 12, longest: { days: 210, weeks: 30, from: "2024-01", to: "2024-07", running: false }, top: [], active_share: 0.874 },
+		{ threshold: 10, current_weeks: 0, longest: null, top: [], active_share: 0.3 },
+		{ threshold: 25, current_weeks: 0, longest: null, top: [], active_share: 0.05 },
+	],
+	eras: [{ key: "home", label: "Home", from: "2019-01", to: null, hour_share: null, grid: null, hours_available_from: null, grid_available_from: null }],
+	years: [],
+};
+
+test("listening clock reads the daily streak set: whole weeks, and active_share as a share of days", () => {
+	const { clockStats } = load();
+	// Through JSON: the helpers' arrays come from the VM's own realm.
+	assert.deepEqual(JSON.parse(JSON.stringify(clockStats(rhythmBody).filter(Boolean))), [
+		["Weeks in a row with a play", "12"],
+		["Longest run, in weeks", "30"],
+		["Days with any listening", "87%"],
+	]);
+	// A running longest streak has no exact day count, only weeks.
+	const running = { ...rhythmBody, streaks: [{ threshold: 1, current_weeks: 2, longest: { days: null, weeks: 2, from: "2026-10", to: "2026-10", running: true }, top: [], active_share: 1 }] };
+	assert.deepEqual(JSON.parse(JSON.stringify(clockStats(running).filter(Boolean))), [
+		["Weeks in a row with a play", "2"],
+		["Longest run, in weeks", "2"],
+		["Days with any listening", "100%"],
+	]);
+	assert.equal(clockStats(null), null);
+	assert.equal(clockStats({ streaks: [] }), null);
+});
+
+test("on repeat says how long the warehouse's window is", () => {
+	const { onRepeatCaption } = load();
+	assert.equal(onRepeatCaption({ as_of: "2026-10-21T00:00:00.000Z", window_days: 14, tracks: [], albums: [] }), "Last 14 days");
+	assert.equal(onRepeatCaption({ window_days: 28, tracks: [], albums: [] }), "Last 28 days");
+	assert.equal(onRepeatCaption(null), "Last 14 days");
 });

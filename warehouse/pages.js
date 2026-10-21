@@ -12,12 +12,17 @@ const RANGES = [
 	{ key: "all", label: "All time", days: 3659 },
 ];
 
+/** The window an on-repeat body covers, e.g. "Last 14 days"; the warehouse says how long it is. */
+function onRepeatCaption(data) {
+	return `Last ${formatNumber(data?.window_days ?? 14)} days`;
+}
+
 function OnRepeat({ settings }) {
 	const state = useApi("/api/stats/on-repeat", settings);
 	const tracks = state.data?.tracks ?? [];
 	return h(
 		Section,
-		{ title: "On repeat", aside: h("span", { className: "mw-muted" }, "Last 14 days") },
+		{ title: "On repeat", aside: h("span", { className: "mw-muted" }, onRepeatCaption(state.data)) },
 		h(Status, { state, empty: state.data && tracks.length === 0 }),
 		h(
 			"div",
@@ -96,11 +101,27 @@ function TopArtists({ settings, query }) {
 	);
 }
 
+/**
+ * The streak figures for a rhythm body, as `[label, value]` pairs, from the
+ * "at least one play a day" streak set. `current_weeks` and `longest.weeks`
+ * are whole weeks (a running streak is only ever reported that way), and
+ * `active_share` is the share of days in the range with a play, not of weeks.
+ */
+function clockStats(data) {
+	const daily = data?.streaks?.find((streak) => streak.threshold === 1);
+	if (!daily) return null;
+	return [
+		["Weeks in a row with a play", formatNumber(daily.current_weeks)],
+		daily.longest && ["Longest run, in weeks", formatNumber(daily.longest.weeks)],
+		["Days with any listening", `${Math.round(daily.active_share * 100)}%`],
+	];
+}
+
 /** Share of plays by hour in the current era, and the running streaks. */
 function Rhythm({ settings }) {
 	const state = useApi("/api/stats/rhythm", settings);
 	const era = state.data?.eras?.at(-1);
-	const weekly = state.data?.streaks?.find((streak) => streak.threshold === 1);
+	const stats = clockStats(state.data);
 	if (!state.data) return h(Section, { title: "Listening clock" }, h(Status, { state }));
 	return h(
 		Section,
@@ -112,14 +133,7 @@ function Rhythm({ settings }) {
 				height: 100,
 				format: (share) => `${(share * 100).toFixed(1)}%`,
 			}),
-		weekly &&
-			h(Stats, {
-				items: [
-					["Weeks in a row with a play", formatNumber(weekly.current_weeks)],
-					weekly.longest && ["Longest run, in weeks", formatNumber(weekly.longest.weeks)],
-					["Weeks with any listening", `${Math.round(weekly.active_share * 100)}%`],
-				],
-			}),
+		stats && h(Stats, { items: stats }),
 	);
 }
 

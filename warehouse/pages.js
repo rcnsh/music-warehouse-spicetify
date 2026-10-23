@@ -589,7 +589,10 @@ function Concerts({ settings }) {
 				value: region,
 				onChange: setRegion,
 			}),
-		h(Status, { state, empty: state.data && concerts.length === 0 }),
+		// Concerts are optional on the Worker: off (no Ticketmaster key or region), it answers 404.
+		state.error?.status === 404
+			? h("p", { className: "mw-muted" }, "Concerts aren't set up on this warehouse. See its README, \"Setting up concerts\".")
+			: h(Status, { state, empty: state.data && concerts.length === 0 }),
 		h(
 			"div",
 			{ className: "mw-list" },

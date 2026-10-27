@@ -1,4 +1,5 @@
 <div align="center">
+<img src="assets/icon.svg" width="96" height="96" alt="">
 <h1>music-warehouse-spicetify</h1>
 <p><strong>Your music-warehouse listening stats, inside the Spotify desktop client.</strong></p>
 <p>

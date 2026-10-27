@@ -1,7 +1,7 @@
 {
 	"name": "Warehouse",
-	"icon": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 21V9l9-6 9 6v12\"/><path d=\"M8 21v-6M12 21v-9M16 21v-4\"/></svg>",
-	"active-icon": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 21V9l9-6 9 6v12\"/><path d=\"M8 21v-6M12 21v-9M16 21v-4\"/></svg>",
+	"icon": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><ellipse cx=\"12\" cy=\"6\" rx=\"9\" ry=\"3\"/><path d=\"M3 6v12a9 3 0 0 0 18 0V6\"/><path d=\"M3 10a9 3 0 0 0 18 0M3 14a9 3 0 0 0 18 0\"/><path d=\"M12 6h.01\"/></svg>",
+	"active-icon": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><ellipse cx=\"12\" cy=\"6\" rx=\"9\" ry=\"3\"/><path d=\"M3 6v12a9 3 0 0 0 18 0V6\"/><path d=\"M3 10a9 3 0 0 0 18 0M3 14a9 3 0 0 0 18 0\"/><path d=\"M12 6h.01\"/></svg>",
 	"subfiles": [
 		"components.js",
 		"pages.js"

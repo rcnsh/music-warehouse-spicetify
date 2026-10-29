@@ -635,7 +635,7 @@ function ArtistPage({ id, settings }) {
 			title: a?.artist?.name ?? preview?.name ?? (byName ? id.slice(5) : state.loading ? null : ""),
 			actions: uri && [
 				h("button", { key: "play", className: "mw-chip mw-primary", onClick: () => play(uri) }, "▶ Play"),
-				h("button", { key: "open", className: "mw-chip", onClick: () => openSpotifyArtist(uri) }, "Open in Spotify"),
+				h("button", { key: "open", className: "mw-chip", onClick: () => openSpotifyArtist(uri) }, "Go to artist"),
 			],
 		}),
 		h(Status, { state }),

@@ -40,9 +40,19 @@ function formatWhen(ms) {
 
 // --- Navigation -------------------------------------------------------------
 
-/** The app's own routes live under /warehouse; History is Spotify's router. */
-function go(path) {
-	Spicetify.Platform.History.push(`/warehouse${path}`);
+/**
+ * The app's own routes live under /warehouse; History is Spotify's router.
+ * `preview` is what the link already shows (a name, art). It rides in the
+ * history entry, back and forward included, so the page can show it at once.
+ */
+function go(path, preview) {
+	Spicetify.Platform.History.push({ pathname: `/warehouse${path}`, state: preview ? { preview } : undefined });
+}
+
+/** The `preview` the link to this page passed to `go`, or null. */
+function usePreview() {
+	const [preview] = useState(() => Spicetify.Platform.History.location?.state?.preview ?? null);
+	return preview;
 }
 
 function trackPath(id) {
@@ -73,7 +83,7 @@ function safeExternalUrl(url) {
 }
 
 /** An in-app link: a real href for keyboard and screen readers, routed by Spotify's history. */
-function AppLink({ path, children }) {
+function AppLink({ path, preview, children }) {
 	return h(
 		"a",
 		{
@@ -82,7 +92,7 @@ function AppLink({ path, children }) {
 			onClick: (event) => {
 				event.preventDefault();
 				event.stopPropagation();
-				go(path);
+				go(path, preview);
 			},
 		},
 		children,
@@ -356,14 +366,29 @@ function PlayCell({ index, uri, label }) {
 	);
 }
 
+/** "A, B, C", each artist with an id linking to their own page. */
+function ArtistLinks({ artists }) {
+	return artists.map((artist, index) =>
+		h(
+			react.Fragment,
+			{ key: `${index}:${artist.id}` },
+			index > 0 && ", ",
+			artist.id ? h(AppLink, { path: artistPath(artist.id), preview: { name: artist.name } }, artist.name) : artist.name,
+		),
+	);
+}
+
 /**
- * One song. `id` opens its page and plays it; `artistId` makes the artist name
- * a link. `detail` sits under the title, after the artist; `value` on the right.
+ * One song. `id` opens its page and plays it. `artists` ({ id, name }[]) links
+ * each artist; `artistId` links `artist` as one. `songArtist` is who the song's
+ * page shows while it loads: null when `artist` isn't the song's own.
+ * `detail` sits under the title, after the artist; `value` on the right.
  */
-function TrackRow({ index, id, name, artist, artistId, image, detail, value }) {
+function TrackRow({ index, id, name, artist, artists, artistId, songArtist = artist, image, detail, value }) {
+	const linked = artists?.length ? artists : artistId ? [{ id: artistId, name: artist }] : null;
 	return h(
 		"div",
-		{ className: "mw-row", ...rowProps(id ? () => go(trackPath(id)) : null) },
+		{ className: "mw-row", ...rowProps(id ? () => go(trackPath(id), { name, artist: songArtist, image }) : null) },
 		h(PlayCell, { index, uri: id && `spotify:track:${id}`, label: name }),
 		h(Art, { src: image, label: name }),
 		h(
@@ -373,7 +398,7 @@ function TrackRow({ index, id, name, artist, artistId, image, detail, value }) {
 			h(
 				"span",
 				{ className: "mw-muted mw-ellipsis" },
-				artistId ? h(AppLink, { path: artistPath(artistId) }, artist) : artist,
+				linked ? h(ArtistLinks, { artists: linked }) : artist,
 				detail && ` · ${detail}`,
 			),
 		),
@@ -385,7 +410,7 @@ function TrackRow({ index, id, name, artist, artistId, image, detail, value }) {
 function ArtistRow({ index, id, name, resolved, detail, value }) {
 	return h(
 		"div",
-		{ className: "mw-row", ...rowProps(() => go(artistPath(id ?? `name:${name}`))) },
+		{ className: "mw-row", ...rowProps(() => go(artistPath(id ?? `name:${name}`), { name, image: resolved?.image })) },
 		h(PlayCell, { index, uri: artistUri(id, resolved), label: name }),
 		h(Art, { src: resolved?.image, round: true, label: name }),
 		h("span", { className: "mw-row-text" }, h("span", { className: "mw-ellipsis" }, name), detail && h("span", { className: "mw-muted mw-ellipsis" }, detail)),

@@ -33,7 +33,7 @@ function OnRepeat({ settings }) {
 					image: track.image,
 					title: track.name,
 					subtitle: track.artists,
-					onOpen: () => go(trackPath(track.track_id)),
+					onOpen: () => go(trackPath(track.track_id), { name: track.name, artist: track.artists, image: track.image }),
 					playUri: `spotify:track:${track.track_id}`,
 					foot: [h("span", { key: "text" }, `${track.plays} plays · ${track.days} days`), h(Sparkline, { key: "spark", daily: track.daily })],
 				}),
@@ -168,7 +168,7 @@ function PlayRows({ plays }) {
 				id: p.track_id,
 				name: p.track_name,
 				artist: p.artists,
-				artistId: p.artist_list?.[0]?.id,
+				artists: p.artist_list,
 				image: p.image_url,
 				detail: p.context_name && p.context_name !== p.album_name ? p.context_name : p.album_name,
 				value: h(
@@ -482,6 +482,7 @@ function WrappedSummary({ range, settings }) {
 						name: month.top_song ?? "—",
 						artist: month.top_artist ?? "",
 						artistId: month.top_artist_id,
+						songArtist: null,
 						image: month.image,
 						detail: formatMonth(month.month),
 						value: `${formatNumber(month.minutes)} min`,
@@ -511,7 +512,7 @@ function WrappedSummary({ range, settings }) {
 					"div",
 					{ className: "mw-cards mw-cards-small" },
 					(w.discoveries.top ?? []).map((artist) =>
-						h(Card, { key: artist.id, image: artist.image, title: artist.name, foot: `${formatNumber(artist.minutes)} min`, onOpen: () => go(artistPath(artist.id)) }),
+						h(Card, { key: artist.id, image: artist.image, title: artist.name, foot: `${formatNumber(artist.minutes)} min`, onOpen: () => go(artistPath(artist.id), { name: artist.name, image: artist.image }) }),
 					),
 				),
 			),
@@ -604,12 +605,13 @@ function Concerts({ settings }) {
 
 // --- Detail pages -----------------------------------------------------------
 
+/** A detail page's header. A null `title` is still loading and shows a placeholder bar. */
 function Hero({ image, round, kicker, title, subtitle, actions }) {
 	return h(
 		"div",
 		{ className: "mw-hero" },
 		h("div", { className: `mw-hero-art${round ? " mw-round" : ""}` }, h(Art, { src: image, round, label: title })),
-		h("div", { className: "mw-hero-text" }, h("div", { className: "mw-muted" }, kicker), h("h1", null, title), subtitle && h("div", { className: "mw-hero-sub" }, subtitle), actions && h("div", { className: "mw-actions" }, actions)),
+		h("div", { className: "mw-hero-text" }, h("div", { className: "mw-muted" }, kicker), h("h1", null, title ?? h("span", { className: "mw-skeleton", "aria-label": "Loading" })), subtitle && h("div", { className: "mw-hero-sub" }, subtitle), actions && h("div", { className: "mw-actions" }, actions)),
 	);
 }
 
@@ -618,6 +620,7 @@ function ArtistPage({ id, settings }) {
 	const query = byName ? `name=${encodeURIComponent(id.slice(5))}` : `id=${encodeURIComponent(id)}`;
 	const state = useApi(`/api/artist?${query}&tz=${encodeURIComponent(TZ)}`, settings);
 	const resolved = useArtists([id]).get(id);
+	const preview = usePreview();
 	const uri = artistUri(id, resolved);
 	const pages = usePlays(byName ? `artist_name=${encodeURIComponent(id.slice(5))}` : `artist_id=${encodeURIComponent(id)}`, settings, 20);
 	const a = state.data;
@@ -625,10 +628,11 @@ function ArtistPage({ id, settings }) {
 		react.Fragment,
 		null,
 		h(Hero, {
-			image: resolved?.large ?? resolved?.image,
+			image: resolved?.large ?? resolved?.image ?? preview?.image,
 			round: true,
 			kicker: "Artist",
-			title: a?.artist?.name ?? id.replace(/^name:/, ""),
+			// A name: id is already the name; a Spotify id would show until the API answers.
+			title: a?.artist?.name ?? preview?.name ?? (byName ? id.slice(5) : state.loading ? null : ""),
 			actions: uri && [
 				h("button", { key: "play", className: "mw-chip mw-primary", onClick: () => play(uri) }, "▶ Play"),
 				h("button", { key: "open", className: "mw-chip", onClick: () => openSpotifyArtist(uri) }, "Open in Spotify"),
@@ -666,16 +670,17 @@ function ArtistPage({ id, settings }) {
 function TrackPage({ id, settings }) {
 	const state = useApi(`/api/track?id=${encodeURIComponent(id)}&tz=${encodeURIComponent(TZ)}`, settings);
 	const pages = usePlays(`track_id=${encodeURIComponent(id)}`, settings, 20);
+	const preview = usePreview();
 	const t = state.data;
-	const artistId = pages.plays[0]?.artist_list?.[0]?.id;
+	const artists = pages.plays[0]?.artist_list;
 	return h(
 		react.Fragment,
 		null,
 		h(Hero, {
-			image: t?.track?.image,
+			image: t?.track?.image ?? preview?.image,
 			kicker: "Song",
-			title: t?.track?.name ?? "",
-			subtitle: t && (artistId ? h(AppLink, { path: artistPath(artistId) }, t.track?.artist) : t.track?.artist),
+			title: t?.track?.name ?? preview?.name ?? (state.loading ? null : ""),
+			subtitle: artists?.length ? h(ArtistLinks, { artists }) : (t?.track?.artist ?? preview?.artist),
 			actions: [h("button", { key: "play", className: "mw-chip mw-primary", onClick: () => play(`spotify:track:${id}`) }, "▶ Play")],
 		}),
 		h(Status, { state }),
